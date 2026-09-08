@@ -1,0 +1,16 @@
+[features]
+resolution = true
+skip-lint = false
+
+[programs.localnet]
+escrow = "HMW6MRyWPGPFsqPCd2T3V752obzuXsAxAqSK57EpmsHX"
+vault = "H6qQh7oWcAnhtmz7shVnsjx5pxepqeRoU39GcpUwUcGB"
+
+[provider]
+cluster = "localnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "cargo test"
+
+[hooks]
