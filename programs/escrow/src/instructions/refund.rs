@@ -6,7 +6,7 @@ use anchor_spl::{
         TransferChecked,
     },
 };
-use crate::state::Escrow;
+use crate::{error::EscrowError, state::Escrow};
 
 #[derive(Accounts)]
 pub struct Refund<'info> {
@@ -46,6 +46,13 @@ pub struct Refund<'info> {
 }
 
 impl<'info> Refund<'info> {
+    /// Enforce the escrow has expired before allowing the maker to reclaim.
+    pub fn check_expired(&self) -> Result<()> {
+        let now = Clock::get()?.unix_timestamp;
+        require!(now >= self.escrow.expires_at, EscrowError::EscrowNotExpired);
+        Ok(())
+    }
+
     pub fn refund_and_close_vault(&mut self) -> Result<()> {
         let seeds = &[
             b"escrow",

@@ -32,10 +32,17 @@ fn setup() -> (LiteSVM, Keypair) {
     (svm, payer)
 }
 
+/// Far-future timestamp: year 2099. Escrow will not expire during tests.
+const FUTURE_EXPIRES_AT: i64 = 4_070_908_800;
+
+/// Pre-epoch timestamp: always in the past relative to the SVM clock.
+const PAST_EXPIRES_AT: i64 = -1;
+
 #[test]
 fn test_make_and_take() {
     let (mut svm, maker) = setup();
     let taker = Keypair::new();
+    let arbiter = Keypair::new();
     svm.airdrop(&taker.pubkey(), 10_000_000_000).unwrap();
 
     let mint_a = CreateMint::new(&mut svm, &maker)
@@ -89,11 +96,12 @@ fn test_make_and_take() {
     let deposit_amount = 500_000_000;
     let receive_amount = 200_000_000;
 
-    // 1. Make
+    // 1. Make — with a far-future expiry so take can proceed
     let make_ix = Instruction {
         program_id: escrow::id(),
         accounts: escrow::accounts::Make {
             maker: maker.pubkey(),
+            arbiter: arbiter.pubkey(),
             mint_a,
             mint_b,
             maker_ata_a,
@@ -108,6 +116,7 @@ fn test_make_and_take() {
             seed,
             deposit: deposit_amount,
             receive: receive_amount,
+            expires_at: FUTURE_EXPIRES_AT,
         }
         .data(),
     };
@@ -126,13 +135,16 @@ fn test_make_and_take() {
     assert_eq!(escrow_data.seed, seed);
     assert_eq!(escrow_data.receive, receive_amount);
     assert_eq!(escrow_data.bump, bump);
+    assert_eq!(escrow_data.arbiter, arbiter.pubkey());
+    assert_eq!(escrow_data.expires_at, FUTURE_EXPIRES_AT);
 
-    // 2. Take
+    // 2. Take — arbiter co-signs to confirm delivery
     let take_ix = Instruction {
         program_id: escrow::id(),
         accounts: escrow::accounts::Take {
             taker: taker.pubkey(),
             maker: maker.pubkey(),
+            arbiter: arbiter.pubkey(),
             mint_a,
             mint_b,
             taker_ata_a,
@@ -149,7 +161,8 @@ fn test_make_and_take() {
     };
 
     let msg = Message::new(&[take_ix], Some(&taker.pubkey()));
-    let tx = Transaction::new(&[&taker], msg, svm.latest_blockhash());
+    // Both taker and arbiter sign: arbiter confirms delivery
+    let tx = Transaction::new(&[&taker, &arbiter], msg, svm.latest_blockhash());
     svm.send_transaction(tx).unwrap();
 
     let taker_a = svm.get_account(&taker_ata_a).unwrap();
@@ -167,6 +180,7 @@ fn test_make_and_take() {
 #[test]
 fn test_make_and_refund() {
     let (mut svm, maker) = setup();
+    let arbiter = Keypair::new();
 
     let mint_a = CreateMint::new(&mut svm, &maker)
         .decimals(6)
@@ -200,11 +214,12 @@ fn test_make_and_refund() {
     let deposit_amount = 300_000_000;
     let receive_amount = 100_000_000;
 
-    // 1. Make
+    // 1. Make — with an already-expired timestamp so refund is immediately valid
     let make_ix = Instruction {
         program_id: escrow::id(),
         accounts: escrow::accounts::Make {
             maker: maker.pubkey(),
+            arbiter: arbiter.pubkey(),
             mint_a,
             mint_b,
             maker_ata_a,
@@ -219,6 +234,7 @@ fn test_make_and_refund() {
             seed,
             deposit: deposit_amount,
             receive: receive_amount,
+            expires_at: PAST_EXPIRES_AT,
         }
         .data(),
     };
@@ -231,7 +247,7 @@ fn test_make_and_refund() {
     let vault_data = spl_token::state::Account::unpack(&vault_account.data).unwrap();
     assert_eq!(vault_data.amount, deposit_amount);
 
-    // 2. Refund
+    // 2. Refund — allowed because escrow has expired
     let refund_ix = Instruction {
         program_id: escrow::id(),
         accounts: escrow::accounts::Refund {
@@ -263,6 +279,7 @@ fn test_make_and_refund() {
 #[test]
 fn test_make_and_update() {
     let (mut svm, maker) = setup();
+    let arbiter = Keypair::new();
 
     let mint_a = CreateMint::new(&mut svm, &maker)
         .decimals(6)
@@ -301,6 +318,7 @@ fn test_make_and_update() {
         program_id: escrow::id(),
         accounts: escrow::accounts::Make {
             maker: maker.pubkey(),
+            arbiter: arbiter.pubkey(),
             mint_a,
             mint_b,
             maker_ata_a,
@@ -315,6 +333,7 @@ fn test_make_and_update() {
             seed,
             deposit: deposit_amount,
             receive: receive_amount,
+            expires_at: FUTURE_EXPIRES_AT,
         }
         .data(),
     };
@@ -323,14 +342,16 @@ fn test_make_and_update() {
     let tx = Transaction::new(&[&maker], msg, svm.latest_blockhash());
     svm.send_transaction(tx).unwrap();
 
-    // Confirm initial receive amount
+    // Confirm initial state
     let escrow_account = svm.get_account(&escrow_pda).unwrap();
     let escrow_data =
         escrow::state::Escrow::try_deserialize(&mut escrow_account.data.as_ref()).unwrap();
     assert_eq!(escrow_data.receive, receive_amount);
+    assert_eq!(escrow_data.expires_at, FUTURE_EXPIRES_AT);
 
-    // 2. Update receive amount
+    // 2. Update receive amount and extend expiry deadline
     let new_receive = 150_000_000;
+    let new_expires_at = FUTURE_EXPIRES_AT + 7200;
     let update_ix = Instruction {
         program_id: escrow::id(),
         accounts: escrow::accounts::Update {
@@ -340,6 +361,7 @@ fn test_make_and_update() {
         .to_account_metas(None),
         data: escrow::instruction::Update {
             receive: new_receive,
+            expires_at: new_expires_at,
         }
         .data(),
     };
@@ -348,9 +370,10 @@ fn test_make_and_update() {
     let tx = Transaction::new(&[&maker], msg, svm.latest_blockhash());
     svm.send_transaction(tx).unwrap();
 
-    // Confirm receive amount was updated
+    // Confirm both fields were updated
     let escrow_account = svm.get_account(&escrow_pda).unwrap();
     let escrow_data =
         escrow::state::Escrow::try_deserialize(&mut escrow_account.data.as_ref()).unwrap();
     assert_eq!(escrow_data.receive, new_receive);
+    assert_eq!(escrow_data.expires_at, new_expires_at);
 }

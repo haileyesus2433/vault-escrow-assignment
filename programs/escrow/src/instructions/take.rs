@@ -6,7 +6,7 @@ use anchor_spl::{
         TransferChecked,
     },
 };
-use crate::state::Escrow;
+use crate::{error::EscrowError, state::Escrow};
 
 #[derive(Accounts)]
 pub struct Take<'info> {
@@ -15,6 +15,12 @@ pub struct Take<'info> {
 
     #[account(mut)]
     pub maker: SystemAccount<'info>,
+
+    /// Arbiter must co-sign to confirm delivery before the swap executes.
+    #[account(
+        constraint = arbiter.key() == escrow.arbiter @ EscrowError::EscrowExpired,
+    )]
+    pub arbiter: Signer<'info>,
 
     pub mint_a: InterfaceAccount<'info, Mint>,
     pub mint_b: InterfaceAccount<'info, Mint>,
@@ -66,6 +72,13 @@ pub struct Take<'info> {
 }
 
 impl<'info> Take<'info> {
+    /// Enforce the escrow has not yet expired.
+    pub fn check_not_expired(&self) -> Result<()> {
+        let now = Clock::get()?.unix_timestamp;
+        require!(now < self.escrow.expires_at, EscrowError::EscrowExpired);
+        Ok(())
+    }
+
     pub fn deposit(&mut self) -> Result<()> {
         let cpi_accounts = TransferChecked {
             from: self.taker_ata_b.to_account_info(),

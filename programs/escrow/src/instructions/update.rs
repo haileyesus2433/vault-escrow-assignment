@@ -16,8 +16,9 @@ pub struct Update<'info> {
 }
 
 impl<'info> Update<'info> {
-    pub fn update(&mut self, receive: u64) -> Result<()> {
+    pub fn update(&mut self, receive: u64, expires_at: i64) -> Result<()> {
         self.escrow.receive = receive;
+        self.escrow.expires_at = expires_at;
         Ok(())
     }
 }

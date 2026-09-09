@@ -1,15 +1,19 @@
+use crate::state::Escrow;
 use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
     token_interface::{transfer_checked, Mint, TokenAccount, TokenInterface, TransferChecked},
 };
-use crate::state::Escrow;
 
 #[derive(Accounts)]
 #[instruction(seed: u64)]
 pub struct Make<'info> {
     #[account(mut)]
     pub maker: Signer<'info>,
+
+    /// CHECK: arbiter is stored as a plain Pubkey in the Escrow state; no CPI or data read is performed on this account.
+    #[account()]
+    pub arbiter: UncheckedAccount<'info>,
 
     pub mint_a: InterfaceAccount<'info, Mint>,
     pub mint_b: InterfaceAccount<'info, Mint>,
@@ -44,13 +48,21 @@ pub struct Make<'info> {
 }
 
 impl<'info> Make<'info> {
-    pub fn init_escrow(&mut self, seed: u64, receive: u64, bumps: &MakeBumps) -> Result<()> {
+    pub fn init_escrow(
+        &mut self,
+        seed: u64,
+        receive: u64,
+        expires_at: i64,
+        bumps: &MakeBumps,
+    ) -> Result<()> {
         self.escrow.set_inner(Escrow {
             seed,
             maker: self.maker.key(),
+            arbiter: self.arbiter.key(),
             mint_a: self.mint_a.key(),
             mint_b: self.mint_b.key(),
             receive,
+            expires_at,
             bump: bumps.escrow,
         });
         Ok(())

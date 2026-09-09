@@ -14,21 +14,23 @@ declare_id!("HMW6MRyWPGPFsqPCd2T3V752obzuXsAxAqSK57EpmsHX");
 pub mod escrow {
     use super::*;
 
-    pub fn make(ctx: Context<Make>, seed: u64, deposit: u64, receive: u64) -> Result<()> {
-        ctx.accounts.init_escrow(seed, receive, &ctx.bumps)?;
+    pub fn make(ctx: Context<Make>, seed: u64, deposit: u64, receive: u64, expires_at: i64) -> Result<()> {
+        ctx.accounts.init_escrow(seed, receive, expires_at, &ctx.bumps)?;
         ctx.accounts.deposit(deposit)
     }
 
     pub fn take(ctx: Context<Take>) -> Result<()> {
+        ctx.accounts.check_not_expired()?;
         ctx.accounts.deposit()?;
         ctx.accounts.withdraw_and_close_vault()
     }
 
     pub fn refund(ctx: Context<Refund>) -> Result<()> {
+        ctx.accounts.check_expired()?;
         ctx.accounts.refund_and_close_vault()
     }
 
-    pub fn update(ctx: Context<Update>, receive: u64) -> Result<()> {
-        ctx.accounts.update(receive)
+    pub fn update(ctx: Context<Update>, receive: u64, expires_at: i64) -> Result<()> {
+        ctx.accounts.update(receive, expires_at)
     }
 }
