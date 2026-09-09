@@ -5,7 +5,6 @@ pub mod state;
 
 use anchor_lang::prelude::*;
 
-pub use constants::*;
 pub use instructions::*;
 pub use state::*;
 
@@ -21,5 +20,9 @@ pub mod vault {
 
     pub fn deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
         ctx.accounts.deposit(amount)
+    }
+
+    pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
+        ctx.accounts.withdraw(amount)
     }
 }

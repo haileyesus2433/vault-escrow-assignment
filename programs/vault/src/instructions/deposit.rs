@@ -1,6 +1,6 @@
+use crate::state::VaultState;
 use anchor_lang::prelude::*;
 use anchor_lang::system_program::{transfer, Transfer};
-use crate::state::VaultState;
 
 #[derive(Accounts)]
 pub struct Deposit<'info> {
