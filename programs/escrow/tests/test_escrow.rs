@@ -259,3 +259,98 @@ fn test_make_and_refund() {
     assert!(svm.get_account(&escrow_pda).is_none());
     assert!(svm.get_account(&vault).is_none());
 }
+
+#[test]
+fn test_make_and_update() {
+    let (mut svm, maker) = setup();
+
+    let mint_a = CreateMint::new(&mut svm, &maker)
+        .decimals(6)
+        .authority(&maker.pubkey())
+        .send()
+        .unwrap();
+
+    let mint_b = CreateMint::new(&mut svm, &maker)
+        .decimals(6)
+        .authority(&maker.pubkey())
+        .send()
+        .unwrap();
+
+    let maker_ata_a = CreateAssociatedTokenAccount::new(&mut svm, &maker, &mint_a)
+        .owner(&maker.pubkey())
+        .send()
+        .unwrap();
+
+    MintTo::new(&mut svm, &maker, &mint_a, &maker_ata_a, 1_000_000_000)
+        .send()
+        .unwrap();
+
+    let seed = 7u64;
+    let (escrow_pda, _bump) = Pubkey::find_program_address(
+        &[b"escrow", maker.pubkey().as_ref(), &seed.to_le_bytes()],
+        &escrow::id(),
+    );
+
+    let vault = associated_token::get_associated_token_address(&escrow_pda, &mint_a);
+
+    let deposit_amount = 200_000_000;
+    let receive_amount = 50_000_000;
+
+    // 1. Make
+    let make_ix = Instruction {
+        program_id: escrow::id(),
+        accounts: escrow::accounts::Make {
+            maker: maker.pubkey(),
+            mint_a,
+            mint_b,
+            maker_ata_a,
+            escrow: escrow_pda,
+            vault,
+            associated_token_program: ASSOCIATED_TOKEN_PROGRAM_ID,
+            token_program: TOKEN_PROGRAM_ID,
+            system_program: SYSTEM_PROGRAM_ID,
+        }
+        .to_account_metas(None),
+        data: escrow::instruction::Make {
+            seed,
+            deposit: deposit_amount,
+            receive: receive_amount,
+        }
+        .data(),
+    };
+
+    let msg = Message::new(&[make_ix], Some(&maker.pubkey()));
+    let tx = Transaction::new(&[&maker], msg, svm.latest_blockhash());
+    svm.send_transaction(tx).unwrap();
+
+    // Confirm initial receive amount
+    let escrow_account = svm.get_account(&escrow_pda).unwrap();
+    let escrow_data =
+        escrow::state::Escrow::try_deserialize(&mut escrow_account.data.as_ref()).unwrap();
+    assert_eq!(escrow_data.receive, receive_amount);
+
+    // 2. Update receive amount
+    let new_receive = 150_000_000;
+    let update_ix = Instruction {
+        program_id: escrow::id(),
+        accounts: escrow::accounts::Update {
+            maker: maker.pubkey(),
+            escrow: escrow_pda,
+        }
+        .to_account_metas(None),
+        data: escrow::instruction::Update {
+            receive: new_receive,
+        }
+        .data(),
+    };
+
+    let msg = Message::new(&[update_ix], Some(&maker.pubkey()));
+    let tx = Transaction::new(&[&maker], msg, svm.latest_blockhash());
+    svm.send_transaction(tx).unwrap();
+
+    // Confirm receive amount was updated
+    let escrow_account = svm.get_account(&escrow_pda).unwrap();
+    let escrow_data =
+        escrow::state::Escrow::try_deserialize(&mut escrow_account.data.as_ref()).unwrap();
+    assert_eq!(escrow_data.receive, new_receive);
+}
