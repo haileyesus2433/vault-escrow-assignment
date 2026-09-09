@@ -1,7 +1,8 @@
 use {
+    anchor_lang::solana_program::instruction::Instruction,
     anchor_lang::{
-        system_program::ID as SYSTEM_PROGRAM_ID,
-        AccountDeserialize, InstructionData, ToAccountMetas,
+        system_program::ID as SYSTEM_PROGRAM_ID, AccountDeserialize, InstructionData,
+        ToAccountMetas,
     },
     litesvm::LiteSVM,
     solana_keypair::Keypair,
@@ -9,7 +10,6 @@ use {
     solana_pubkey::Pubkey,
     solana_signer::Signer,
     solana_transaction::Transaction,
-    anchor_lang::solana_program::instruction::Instruction,
 };
 
 fn setup() -> (LiteSVM, Keypair) {
@@ -54,8 +54,7 @@ fn test_initialize_deposit_withdraw_close() {
 
     let vault_state_account = svm.get_account(&vault_state_pda).unwrap();
     let vault_state =
-        vault::state::VaultState::try_deserialize(&mut vault_state_account.data.as_ref())
-            .unwrap();
+        vault::state::VaultState::try_deserialize(&mut vault_state_account.data.as_ref()).unwrap();
 
     assert_eq!(vault_state.vault_bump, vault_bump);
     assert_eq!(vault_state.state_bump, state_bump);
@@ -110,7 +109,10 @@ fn test_initialize_deposit_withdraw_close() {
     svm.send_transaction(transaction3).unwrap();
 
     let vault_balance_after_withdraw = svm.get_balance(&vault_pda).unwrap();
-    assert_eq!(vault_balance_after_withdraw, deposit_amount - withdraw_amount);
+    assert_eq!(
+        vault_balance_after_withdraw,
+        deposit_amount - withdraw_amount
+    );
 
     // 4. Close
     let close_ix = Instruction {
